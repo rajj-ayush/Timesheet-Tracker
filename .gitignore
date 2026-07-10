@@ -1,0 +1,15 @@
+# Ignore environment variables (NEVER commit this!)
+.env
+
+# Ignore the background tracker with hardcoded credentials
+tracker.py
+
+# Ignore local Python environments
+venv/
+__pycache__/
+
+# Ignore tracker configurations and compiled executables
+user_config.json
+dist/
+build/
+*.spec

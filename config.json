@@ -1,0 +1,4 @@
+{
+  "tracking_interval_seconds": 60,
+  "retention_days": 30
+}
