@@ -6,6 +6,7 @@ from datetime import datetime, timedelta, date
 from dotenv import load_dotenv
 from google import genai
 import psycopg2
+from streamlit_cookies_controller import CookieController
 
 # Import your clean prompt logic
 from prompts.system_prompt import get_timesheet_prompt
@@ -15,15 +16,23 @@ st.set_page_config(page_title="AI Timesheet Assistant", page_icon="🤖", layout
 load_dotenv()
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
+# Initialize cookie manager
+controller = CookieController()
+
 # Helper function to securely encrypt passwords
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
 # --- SESSION MANAGEMENT ---
 if "user_email" not in st.session_state:
-    st.session_state.user_email = None
+    # Check if the browser remembers the user from a previous session
+    saved_email = controller.get('user_email')
+    st.session_state.user_email = saved_email if saved_email else None
+
 if "user_name" not in st.session_state:
-    st.session_state.user_name = None
+    saved_name = controller.get('user_name')
+    st.session_state.user_name = saved_name if saved_name else None
+
 if "generated_report" not in st.session_state:
     st.session_state.generated_report = ""
 
@@ -59,6 +68,11 @@ if st.session_state.user_email is None:
                     if user_record and user_record[1] == hash_password(login_pass):
                         st.session_state.user_email = clean_email
                         st.session_state.user_name = user_record[0]
+                        
+                        # Save to browser cookies so login survives page refresh
+                        controller.set('user_email', clean_email)
+                        controller.set('user_name', user_record[0])
+                        
                         st.rerun()
                     else:
                         st.error("❌ Invalid email or password.")
@@ -82,6 +96,11 @@ else:
             st.session_state.user_email = None
             st.session_state.user_name = None
             st.session_state.generated_report = ""
+            
+            # Delete browser cookies so user stays logged out
+            controller.remove('user_email')
+            controller.remove('user_name')
+            
             st.rerun()
             
         st.divider()
@@ -112,7 +131,7 @@ else:
                 max_value=today,
                 label_visibility="collapsed"
             )
-            if st.button(f"📝 Draft {selected_date.strftime('%b %d')}", type="primary", use_container_width=True):
+            if st.button(f" Draft {selected_date.strftime('%b %d')}", type="primary", use_container_width=True):
                 trigger_generation = True
                 start_target = selected_date.strftime('%Y-%m-%d')
                 end_target = start_target
