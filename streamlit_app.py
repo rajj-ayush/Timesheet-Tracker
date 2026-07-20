@@ -2,6 +2,9 @@ import streamlit as st
 import os
 import json
 import hashlib
+import smtplib
+import random
+from email.mime.text import MIMEText
 from datetime import datetime, timedelta, date
 from dotenv import load_dotenv
 from google import genai
@@ -23,21 +26,53 @@ controller = CookieController()
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
 
+# Helper function to send OTP securely from the server
+def send_otp_email(receiver_email, otp_code):
+    sender_email = os.getenv("SENDER_EMAIL")
+    sender_password = os.getenv("SENDER_PASSWORD")
+    
+    msg = MIMEText(f"Your Hoonartek Timesheet verification code is: {otp_code}\n\nDo not share this code with anyone.")
+    msg['Subject'] = 'Hoonartek Timesheet - Verification Code'
+    msg['From'] = sender_email
+    msg['To'] = receiver_email
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(sender_email, sender_password)
+        server.send_message(msg)
+        server.quit()
+        return True
+    except Exception as e:
+        return str(e)
+
 # --- SESSION MANAGEMENT ---
 if "user_email" not in st.session_state:
-    # Check if the browser remembers the user from a previous session
-    saved_email = controller.get('user_email')
-    st.session_state.user_email = saved_email if saved_email else None
-
+    st.session_state.user_email = None
 if "user_name" not in st.session_state:
-    saved_name = controller.get('user_name')
-    st.session_state.user_name = saved_name if saved_name else None
-
+    st.session_state.user_name = None
 if "generated_report" not in st.session_state:
     st.session_state.generated_report = ""
+if "signup_stage" not in st.session_state:
+    st.session_state.signup_stage = 1
+if "signup_email" not in st.session_state:
+    st.session_state.signup_email = ""
+if "signup_otp" not in st.session_state:
+    st.session_state.signup_otp = ""
+
+# --- AGGRESSIVE COOKIE RECOVERY (Fixes the refresh bug) ---
+cookie_email = controller.get('user_email')
+cookie_name = controller.get('user_name')
+
+# If session is empty but the cookie finally loaded, restore it and force a rerun to fix the screen
+if st.session_state.user_email is None and cookie_email:
+    st.session_state.user_email = cookie_email
+    st.session_state.user_name = cookie_name
+    st.rerun()
+
 
 # ==========================================
-# 🔒 THE SECURE LOGIN SCREEN (Sign-up Removed)
+# 🔒 THE SECURE AUTHENTICATION PORTAL
 # ==========================================
 if st.session_state.user_email is None:
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -46,38 +81,111 @@ if st.session_state.user_email is None:
         st.title("🔒 Timesheet Portal")
         st.markdown("Secure access to your automated timesheets.")
         
-        # New instructional banner for employees
-        st.info("ℹ️ **Account Setup:** Registration is handled directly through your Desktop Tracker. Please log in using the credentials you created there.")
+        tab1, tab2 = st.tabs(["Log In", "Sign Up (New Users)"])
         
-        # --- LOGIN FORM ---
-        with st.form("login_form"):
-            login_email = st.text_input("Company Email")
-            login_pass = st.text_input("Password", type="password")
-            submit_login = st.form_submit_button("Log In", type="primary", use_container_width=True)
-            
-            if submit_login:
-                clean_email = login_email.strip().lower()
-                try:
-                    conn = psycopg2.connect(os.getenv("DATABASE_URL"))
-                    cursor = conn.cursor()
-                    cursor.execute("SELECT name, password_hash FROM users WHERE email = %s", (clean_email,))
-                    user_record = cursor.fetchone()
-                    cursor.close()
-                    conn.close()
+        # --- TAB 1: LOG IN ---
+        with tab1:
+            with st.form("login_form"):
+                login_email = st.text_input("Company Email")
+                login_pass = st.text_input("Password", type="password")
+                submit_login = st.form_submit_button("Log In", type="primary", use_container_width=True)
+                
+                if submit_login:
+                    clean_email = login_email.strip().lower()
+                    try:
+                        conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT name, password_hash FROM users WHERE email = %s", (clean_email,))
+                        user_record = cursor.fetchone()
+                        cursor.close()
+                        conn.close()
+                        
+                        if user_record and user_record[1] == hash_password(login_pass):
+                            st.session_state.user_email = clean_email
+                            st.session_state.user_name = user_record[0]
+                            
+                            controller.set('user_email', clean_email)
+                            controller.set('user_name', user_record[0])
+                            
+                            st.rerun()
+                        else:
+                            st.error("❌ Invalid email or password.")
+                    except Exception as e:
+                        st.error(f"Database Error: {e}")
+
+        # --- TAB 2: SIGN UP ---
+        with tab2:
+            if st.session_state.signup_stage == 1:
+                st.info("First time here? Verify your email to create an account.")
+                with st.form("email_form"):
+                    reg_name = st.text_input("Full Name (e.g., Ayush Raj)")
+                    reg_email = st.text_input("Company Email (@hoonartek.com)")
+                    send_otp_btn = st.form_submit_button("Send Verification Code", use_container_width=True)
                     
-                    if user_record and user_record[1] == hash_password(login_pass):
-                        st.session_state.user_email = clean_email
-                        st.session_state.user_name = user_record[0]
-                        
-                        # Save to browser cookies so login survives page refresh
-                        controller.set('user_email', clean_email)
-                        controller.set('user_name', user_record[0])
-                        
-                        st.rerun()
-                    else:
-                        st.error("❌ Invalid email or password.")
-                except Exception as e:
-                    st.error(f"Database Error: {e}")
+                    if send_otp_btn:
+                        if "@hoonartek.com" not in reg_email.lower():
+                            st.error("Please use a valid Hoonartek email address.")
+                        elif len(reg_name) < 2:
+                            st.error("Please enter your full name.")
+                        else:
+                            generated_otp = str(random.randint(100000, 999999))
+                            st.session_state.signup_otp = generated_otp
+                            st.session_state.signup_email = reg_email.strip().lower()
+                            st.session_state.signup_name = reg_name.strip()
+                            
+                            with st.spinner("Sending email..."):
+                                result = send_otp_email(st.session_state.signup_email, generated_otp)
+                                if result is True:
+                                    st.session_state.signup_stage = 2
+                                    st.rerun()
+                                else:
+                                    st.error(f"Failed to send email. Error: {result}")
+            
+            elif st.session_state.signup_stage == 2:
+                st.success(f"Verification code sent to **{st.session_state.signup_email}**")
+                with st.form("password_form"):
+                    entered_otp = st.text_input("Enter Verification Code")
+                    new_password = st.text_input("Create Password", type="password")
+                    confirm_password = st.text_input("Confirm Password", type="password")
+                    
+                    col_back, col_submit = st.columns(2)
+                    with col_back:
+                        if st.form_submit_button("Go Back"):
+                            st.session_state.signup_stage = 1
+                            st.rerun()
+                    with col_submit:
+                        create_account_btn = st.form_submit_button("Create Account", type="primary")
+                    
+                    if create_account_btn:
+                        if entered_otp != st.session_state.signup_otp:
+                            st.error("Incorrect verification code.")
+                        elif len(new_password) < 6:
+                            st.error("Password must be at least 6 characters.")
+                        elif new_password != confirm_password:
+                            st.error("Passwords do not match.")
+                        else:
+                            try:
+                                conn = psycopg2.connect(os.getenv("DATABASE_URL"))
+                                cursor = conn.cursor()
+                                hashed_pw = hash_password(new_password)
+                                
+                                cursor.execute("SELECT email FROM users WHERE email = %s", (st.session_state.signup_email,))
+                                if cursor.fetchone():
+                                    st.error("An account with this email already exists! Please log in.")
+                                    st.session_state.signup_stage = 1
+                                else:
+                                    cursor.execute(
+                                        "INSERT INTO users (email, name, password_hash) VALUES (%s, %s, %s)",
+                                        (st.session_state.signup_email, st.session_state.signup_name, hashed_pw)
+                                    )
+                                    conn.commit()
+                                    st.success("Account created successfully! You can now log in.")
+                                    st.session_state.signup_stage = 1
+                                    
+                                cursor.close()
+                                conn.close()
+                            except Exception as e:
+                                st.error(f"Database Error: {e}")
 
 # ==========================================
 # 📊 THE MAIN DASHBOARD (Protected)
@@ -85,26 +193,13 @@ if st.session_state.user_email is None:
 else:
     st.title("🤖 AI Timesheet Assistant")
 
-    # --- SIDEBAR: DASHBOARD ---
+    # --- SIDEBAR: REARRANGED LAYOUT ---
     with st.sidebar:
         st.header("Dashboard")
-        
-        st.markdown(f"### 👋 Hi {st.session_state.user_name}")
-        
-        # LOGOUT LOGIC
-        if st.button("Log Out", type="secondary", use_container_width=True):
-            st.session_state.user_email = None
-            st.session_state.user_name = None
-            st.session_state.generated_report = ""
-            
-            # Delete browser cookies so user stays logged out
-            controller.remove('user_email')
-            controller.remove('user_name')
-            
-            st.rerun()
-            
+        st.markdown(f"### 👋 Hi, {st.session_state.user_name}")
         st.divider()
         
+        # 1. GENERATE REPORT MOVED TO TOP
         st.subheader("Generate Report")
         
         try:
@@ -145,16 +240,41 @@ else:
             )
             if len(selected_dates) == 2:
                 start_date, end_date = selected_dates
-                if st.button(f"📝 Draft {start_date.strftime('%b %d')} - {end_date.strftime('%b %d')}", type="primary", use_container_width=True):
+                if st.button(f" Draft {start_date.strftime('%b %d')} - {end_date.strftime('%b %d')}", type="primary", use_container_width=True):
                     trigger_generation = True
                     start_target = start_date.strftime('%Y-%m-%d')
                     end_target = end_date.strftime('%Y-%m-%d')
             elif len(selected_dates) == 1:
                 st.info("Please select an end date to complete the range.")
+        
+        st.divider()
+        
+        # 2. DESKTOP TRACKER MOVED TO BOTTOM
+        st.markdown("### Desktop Tracker")
+        st.markdown("Run this lightweight app in the background to automatically log your work.")
+        # Replace with your actual GitHub Raw or Google Drive link
+        st.link_button(
+            " Download ", 
+            "https://github.com/ayushraj-hoonartek/ai-timesheet-db/raw/main/updates/Hoonartek_Tracker_v1.zip", 
+            use_container_width=True
+        )
+        
+        st.divider()
+        
+        # 3. LOG OUT MOVED TO VERY BOTTOM
+        if st.button("Log Out", type="secondary", use_container_width=True):
+            st.session_state.user_email = None
+            st.session_state.user_name = None
+            st.session_state.generated_report = ""
+            
+            controller.remove('user_email')
+            controller.remove('user_name')
+            
+            st.rerun()
 
     # --- TIMESHEET GENERATION LOGIC ---
     if trigger_generation:
-        with st.spinner(f"📝 Generating professional timesheet for {start_target}..."):
+        with st.spinner(f" Generating professional timesheet for {start_target}..."):
             final_answer = ""
             start_date_obj = datetime.strptime(start_target, "%Y-%m-%d").date()
             end_date_obj = datetime.strptime(end_target, "%Y-%m-%d").date()
@@ -205,7 +325,7 @@ else:
         st.markdown(st.session_state.generated_report)
         st.divider()
         st.download_button(
-            label="📥 Download as Text File",
+            label=" Download as Text File",
             data=st.session_state.generated_report,
             file_name=f"Timesheet_{datetime.now().strftime('%Y%m%d')}.txt",
             mime="text/plain",
