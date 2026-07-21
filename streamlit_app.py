@@ -250,12 +250,12 @@ else:
         st.divider()
         
         # 2. DESKTOP TRACKER MOVED TO BOTTOM
-        st.markdown("### Desktop Tracker")
-        st.markdown("Run this lightweight app in the background to automatically log your work.")
+        st.markdown("### Hoonartek Desktop Tracker")
+        st.markdown("An application that automatically logs your active tasks and work hours, ensuring your timesheets are always accurate and up to date")
         # Replace with your actual GitHub Raw or Google Drive link
         st.link_button(
             " Download ", 
-            "https://github.com/ayushraj-hoonartek/ai-timesheet-db/raw/main/updates/Hoonartek_Tracker_v1.zip", 
+            "https://github.com/rajj-ayush/Timesheet-Tracker/blob/main/updates/hoonartek_tracker.exe", 
             use_container_width=True
         )
         
