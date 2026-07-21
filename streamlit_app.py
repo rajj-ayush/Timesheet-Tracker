@@ -4,6 +4,7 @@ import json
 import hashlib
 import smtplib
 import random
+import requests
 from email.mime.text import MIMEText
 from datetime import datetime, timedelta, date
 from dotenv import load_dotenv
@@ -45,6 +46,13 @@ def send_otp_email(receiver_email, otp_code):
         return True
     except Exception as e:
         return str(e)
+
+# Helper function to fetch the tracker executable in the background
+@st.cache_data(show_spinner=False)
+def get_tracker_exe():
+    exe_url = "https://raw.githubusercontent.com/rajj-ayush/Timesheet-Tracker/main/updates/hoonartek_tracker.exe"
+    response = requests.get(exe_url)
+    return response.content
 
 # --- SESSION MANAGEMENT ---
 if "user_email" not in st.session_state:
@@ -191,7 +199,7 @@ if st.session_state.user_email is None:
 # 📊 THE MAIN DASHBOARD (Protected)
 # ==========================================
 else:
-    st.title("🤖 AI Timesheet Assistant")
+    st.title(" AI Timesheet Assistant")
 
     # --- SIDEBAR: REARRANGED LAYOUT ---
     with st.sidebar:
@@ -249,28 +257,19 @@ else:
         
         st.divider()
         
-        # 2. DESKTOP TRACKER MOVED TO BOTTOM
-        st.markdown("### Hoonartek Desktop Tracker")
-        st.markdown("An application that automatically logs your active tasks and work hours, ensuring your timesheets are always accurate and up to date")
-        # Replace with your actual GitHub Raw or Google Drive link
-        st.link_button(
-            " Download ", 
-            "https://github.com/rajj-ayush/Timesheet-Tracker/blob/main/updates/hoonartek_tracker.exe", 
+        # 2. DESKTOP TRACKER DIRECT DOWNLOAD
+        st.markdown("###  Automate Your Timesheets")
+        st.markdown("Run this secure, lightweight app in the background to seamlessly track your daily work without the manual hassle.")
+        
+        exe_data = get_tracker_exe()
+        
+        st.download_button(
+            label="⬇️ Download Desktop Tracker",
+            data=exe_data,
+            file_name="hoonartek_tracker.exe",
+            mime="application/x-msdownload",
             use_container_width=True
         )
-        
-        st.divider()
-        
-        # 3. LOG OUT MOVED TO VERY BOTTOM
-        if st.button("Log Out", type="secondary", use_container_width=True):
-            st.session_state.user_email = None
-            st.session_state.user_name = None
-            st.session_state.generated_report = ""
-            
-            controller.remove('user_email')
-            controller.remove('user_name')
-            
-            st.rerun()
 
     # --- TIMESHEET GENERATION LOGIC ---
     if trigger_generation:
