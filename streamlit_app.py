@@ -86,7 +86,7 @@ if st.session_state.user_email is None:
     col1, col2, col3 = st.columns([1, 2, 1])
     
     with col2:
-        st.title("🔒 Timesheet Portal")
+        st.title(" Timesheet Portal")
         st.markdown("Secure access to your automated timesheets.")
         
         tab1, tab2 = st.tabs(["Log In", "Sign Up (New Users)"])
@@ -117,7 +117,7 @@ if st.session_state.user_email is None:
                             
                             st.rerun()
                         else:
-                            st.error("❌ Invalid email or password.")
+                            st.error(" Invalid email or password.")
                     except Exception as e:
                         st.error(f"Database Error: {e}")
 
@@ -204,7 +204,7 @@ else:
     # --- SIDEBAR: REARRANGED LAYOUT ---
     with st.sidebar:
         st.header("Dashboard")
-        st.markdown(f"### 👋 Hi, {st.session_state.user_name}")
+        st.markdown(f"### Hi, {st.session_state.user_name}")
         st.divider()
         
         # 1. GENERATE REPORT MOVED TO TOP
@@ -264,59 +264,81 @@ else:
         exe_data = get_tracker_exe()
         
         st.download_button(
-            label="⬇️ Download Desktop Tracker",
+            label="⬇ Download Desktop Tracker",
             data=exe_data,
             file_name="hoonartek_tracker.exe",
             mime="application/x-msdownload",
             use_container_width=True
         )
 
-    # --- TIMESHEET GENERATION LOGIC ---
+    # --- TIMESHEET GENERATION LOGIC (UPDATED FOR NEW ARCHITECTURE) ---
     if trigger_generation:
-        with st.spinner(f" Generating professional timesheet for {start_target}..."):
+        today_str = date.today().strftime('%Y-%m-%d')
+        
+        with st.spinner(f" Fetching timesheet data..."):
             final_answer = ""
-            start_date_obj = datetime.strptime(start_target, "%Y-%m-%d").date()
-            end_date_obj = datetime.strptime(end_target, "%Y-%m-%d").date()
-            
-            logs = []
             try:
                 db_url = os.getenv("DATABASE_URL")
                 conn = psycopg2.connect(db_url)
                 cursor = conn.cursor()
                 
-                cursor.execute("""
-                    SELECT timestamp, active_application 
-                    FROM activity_logs 
-                    WHERE DATE(timestamp) >= %s AND DATE(timestamp) <= %s
-                    AND employee_email = %s
-                    ORDER BY timestamp ASC
-                """, (start_date_obj, end_date_obj, st.session_state.user_email))
-                
-                rows = cursor.fetchall()
-                for row in rows:
-                    logs.append({
-                        "timestamp": str(row[0]), 
-                        "active_application": row[1]
-                    })
+                # SCENARIO 1: A single day in the past (Read from daily_summaries - 0 API tokens!)
+                if start_target == end_target and start_target != today_str:
+                    cursor.execute("""
+                        SELECT summary FROM daily_summaries 
+                        WHERE email = %s AND log_date = %s
+                    """, (st.session_state.user_email, start_target))
+                    result = cursor.fetchone()
                     
+                    if result:
+                        final_answer = result[0]
+                    else:
+                        final_answer = f" No saved summary found for **{start_target}**.\n\nThis usually means the desktop tracker was not running that day, or it was manually deleted."
+
+                # SCENARIO 2: A Date Range (Read multiple from daily_summaries - 0 API tokens!)
+                elif start_target != end_target:
+                    cursor.execute("""
+                        SELECT log_date, summary FROM daily_summaries 
+                        WHERE email = %s AND log_date >= %s AND log_date <= %s
+                        ORDER BY log_date ASC
+                    """, (st.session_state.user_email, start_target, end_target))
+                    results = cursor.fetchall()
+                    
+                    if results:
+                        combined_reports = []
+                        for row in results:
+                            log_date_str = row[0]
+                            daily_summary = row[1]
+                            combined_reports.append(f"###  {log_date_str}\n{daily_summary}\n\n---\n")
+                        final_answer = "\n".join(combined_reports)
+                    else:
+                        final_answer = f" No saved summaries found between **{start_target}** and **{end_target}**."
+
+                # SCENARIO 3: Today (Read from activity_logs and run Gemini!)
+                elif start_target == today_str:
+                    st.info("💡 Generating a live draft using today's raw tracking data...")
+                    cursor.execute("""
+                        SELECT timestamp, active_application 
+                        FROM activity_logs 
+                        WHERE DATE(timestamp) = %s AND employee_email = %s
+                        ORDER BY timestamp ASC
+                    """, (start_target, st.session_state.user_email))
+                    
+                    rows = cursor.fetchall()
+                    logs = [{"timestamp": str(row[0]), "active_application": row[1]} for row in rows]
+                    
+                    if not logs:
+                        final_answer = f" No live activity logs found for today (**{start_target}**).\nMake sure your desktop tracker is running!"
+                    else:
+                        prompt = get_timesheet_prompt(logs, start_target, end_target)
+                        response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
+                        final_answer = response.text
+
                 cursor.close()
                 conn.close()
             except Exception as e:
-                st.error(f"Database Query Error: {e}")
+                final_answer = f" Database or AI Error: {e}"
             
-            if not logs:
-                if start_target == end_target:
-                    final_answer = f"No work activity logs found for **{start_target}**."
-                else:
-                    final_answer = f"No work activity logs found from **{start_target}** to **{end_target}**."
-            else:
-                try:
-                    prompt = get_timesheet_prompt(logs, start_target, end_target)
-                    response = client.models.generate_content(model="gemini-3.1-flash-lite", contents=prompt)
-                    final_answer = response.text
-                except Exception as e:
-                    final_answer = f"❌ Timesheet Agent Error: {e}"
-
             st.session_state.generated_report = final_answer
 
     # --- MAIN DISPLAY AREA ---

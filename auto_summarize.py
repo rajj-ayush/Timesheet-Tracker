@@ -57,14 +57,14 @@ def process_all_employees_summary(target_date_str=None):
         emails = [row[0] for row in cursor.fetchall()]
 
         if not emails:
-            print(f"⚠️ No activity logs found in the database for {target_date_str}.")
+            print(f"No activity logs found in the database for {target_date_str}.")
             return
 
-        print(f"👥 Found logs for {len(emails)} employee(s). Processing...\n")
+        print(f" Found logs for {len(emails)} employee(s). Processing...\n")
 
         # 2. Loop through each employee and generate their specific summary
         for email in emails:
-            print(f"➡️ Processing timesheet for: {email}")
+            print(f" Processing timesheet for: {email}")
             
             cursor.execute("""
                 SELECT timestamp, active_application 
@@ -77,7 +77,7 @@ def process_all_employees_summary(target_date_str=None):
             
             summary_text = generate_ai_task_summary(rows, target_date_str)
 
-            # 3. Save to database
+            # 3. Save summary to database
             upsert_query = """
                 INSERT INTO daily_summaries (email, log_date, summary)
                 VALUES (%s, %s, %s)
@@ -85,16 +85,40 @@ def process_all_employees_summary(target_date_str=None):
                 DO UPDATE SET summary = EXCLUDED.summary;
             """
             cursor.execute(upsert_query, (email, target_date_str, summary_text))
-            conn.commit()
-            print(f"   ✅ Saved summary for {email}\n")
 
-        print("🎉 ALL EMPLOYEES PROCESSED SUCCESSFULLY!")
+            # 4. Delete the raw logs to save space
+            delete_query = """
+                DELETE FROM activity_logs 
+                WHERE DATE(timestamp) = %s AND employee_email = %s;
+            """
+            cursor.execute(delete_query, (target_date_str, email))
+            
+            # Commit both actions together safely
+            conn.commit()
+            print(f"   Saved summary and deleted raw logs for {email}\n")
+
+        print(" ALL EMPLOYEES PROCESSED SUCCESSFULLY!")
+
+        # 5. Database Maintenance: 30-Day Rolling Window Cleanup
+        print(" Running database maintenance: Cleaning up summaries older than 30 days...")
+        
+        thirty_days_ago = (datetime.now() - timedelta(days=30)).date().strftime("%Y-%m-%d")
+        
+        cleanup_query = """
+            DELETE FROM daily_summaries 
+            WHERE log_date < %s;
+        """
+        cursor.execute(cleanup_query, (thirty_days_ago,))
+        conn.commit()
+        
+        deleted_count = cursor.rowcount
+        print(f"   Removed {deleted_count} old summary/summaries.\n")
 
         cursor.close()
         conn.close()
 
     except Exception as e:
-        print(f"❌ Error during master summarization: {e}")
+        print(f" Error during master summarization: {e}")
 
 
 if __name__ == "__main__":
