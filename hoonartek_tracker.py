@@ -7,12 +7,17 @@ import webbrowser
 import hashlib
 import subprocess
 import requests
-from datetime import datetime
+from datetime import datetime, timedelta
 import pystray
 from PIL import Image, ImageDraw
 import psycopg2
 import tkinter as tk
 from tkinter import simpledialog, messagebox
+import keyboard
+import pyautogui
+import pyperclip
+
+last_used_date = None
 
 try:
     import win32gui
@@ -23,6 +28,9 @@ except ImportError:
 # --- 1. CONFIGURATION ---
 DB_URL = "postgresql://neondb_owner:npg_dR8FY4hIcnbw@ep-gentle-water-atoky22j.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require"
 STREAMLIT_URL = "https://timesheet-tracker-hoonartek.streamlit.app"
+
+# Disable the corner mouse fail-safe so typing isn't interrupted
+pyautogui.FAILSAFE = False
 
 # Auto-Updater Configuration
 def get_internal_version():
@@ -36,7 +44,6 @@ def get_internal_version():
         print(f"⚠️ Version file missing, defaulting to fallback. Error: {e}")
         return 0.0
 
-# Auto-Updater Configuration
 CURRENT_VERSION = get_internal_version()
 GITHUB_TOKEN = "" 
 GITHUB_USER = "rajj-ayush" 
@@ -53,7 +60,7 @@ is_tracking = True
 
 # --- 2. AUTO-UPDATER LOGIC ---
 def check_for_updates():
-    print(" Checking cloud for updates...")
+    print("Checking cloud for updates...")
     
     headers = {}
     if GITHUB_TOKEN:
@@ -149,7 +156,6 @@ def get_employee_credentials():
                 messagebox.showerror("Error", "Incorrect password.")
                 continue
         else:
-            # New flow: No account found, direct them to the web portal!
             messagebox.showerror("Account Not Found", "You must register on the Web Portal first before using the desktop app.\n\nPlease visit the Timesheet Portal to create your account.")
             sys.exit(1)
 
@@ -189,7 +195,6 @@ def tracking_loop(email):
     bucket_start_time = time.time()
     BUCKET_LIMIT = 30 * 60
 
-    # BULLETPROOF LOOP
     while is_tracking:
         try:
             current_app = get_active_window_title()
@@ -214,7 +219,6 @@ def tracking_loop(email):
                 if summary_string:
                     now = datetime.now()
                     
-                    # Ensure database is still connected before inserting
                     if conn.closed != 0:
                         conn = psycopg2.connect(DB_URL)
                         cursor = conn.cursor()
@@ -233,7 +237,6 @@ def tracking_loop(email):
                 check_for_updates()
                 last_update_check = time.time()
 
-            # Wait 10 seconds before checking again
             time.sleep(10)
             
         except psycopg2.Error as db_error:
@@ -244,17 +247,127 @@ def tracking_loop(email):
                 cursor = conn.cursor()
             except:
                 pass
-            time.sleep(10) # Pause before retrying
+            time.sleep(10)
             
         except Exception as e:
-            # CATCH-ALL: Prevents silent crashes from screen locks
             print(f"💥 Temporary Loop Error: {e}")
             time.sleep(10) 
 
     if 'cursor' in locals() and cursor: cursor.close()
     if 'conn' in locals() and conn: conn.close()
 
-# --- 5. SYSTEM TRAY LOGIC ---
+# --- 5. TIMESHEET AUTOFILL LOGIC ---
+def autofill_keka_timesheet(email):
+    """Fetches the saved AI summary from Neon DB and pastes it instantly."""
+    global last_used_date 
+    
+    # 1. Memorize BOTH the Window ID and the exact Tab Title
+    original_window = win32gui.GetForegroundWindow()
+    original_title = win32gui.GetWindowText(original_window)
+    
+    # 2. Smart Default Logic
+    today = datetime.now()
+    if last_used_date:
+        suggested_date = last_used_date + timedelta(days=1)
+    else:
+        suggested_date = today
+        
+    suggested_str = suggested_date.strftime("%Y-%m-%d")
+    
+    prompt_text = (
+        "Bulk Fill: Press Enter for the next consecutive day.\n"
+        "Or type a specific day (e.g., '15' for the 15th, '06-15' for June 15).\n\n"
+        "Enter date:"
+    )
+    
+    raw_input = pyautogui.prompt(
+        text=prompt_text, 
+        title='Fetch Timesheet', 
+        default=suggested_str
+    )
+    
+    if not raw_input:
+        return 
+
+    # --- SMART DATE PARSING LOGIC ---
+    raw_input = raw_input.strip().lower()
+    target_date_str = raw_input 
+    
+    try:
+        if raw_input in ['y', 'yesterday']:
+            parsed_date = today - timedelta(days=1)
+        elif raw_input.isdigit() and 1 <= int(raw_input) <= 31:
+            parsed_date = today.replace(day=int(raw_input))
+        elif len(raw_input) <= 5 and '-' in raw_input: 
+            month, day = map(int, raw_input.split('-'))
+            parsed_date = today.replace(month=month, day=day)
+        else:
+            parsed_date = datetime.strptime(raw_input, "%Y-%m-%d")
+            
+        target_date_str = parsed_date.strftime("%Y-%m-%d")
+        last_used_date = parsed_date 
+        
+    except Exception as e:
+        print(f"Date formatting error: {e}")
+    # --------------------------------
+
+    try:
+        # 3. Connect to Neon and fetch the saved summary
+        conn = psycopg2.connect(DB_URL)
+        cursor = conn.cursor()
+        
+        query = "SELECT summary FROM daily_summaries WHERE email = %s AND log_date = %s"
+        cursor.execute(query, (email, target_date_str))
+        result = cursor.fetchone()
+        
+        cursor.close()
+        conn.close()
+        
+        if result:
+            summary_text = result[0]
+        else:
+            summary_text = f"[No summary found for {target_date_str}. Run the backfill script to generate it!]"
+
+        # 4. SUPER-SMART WAIT: Check both ID and Tab Title
+        wait_time = 0
+        current_window = win32gui.GetForegroundWindow()
+        current_title = win32gui.GetWindowText(current_window)
+        
+        while (current_window != original_window or current_title != original_title) and wait_time < 30:
+            time.sleep(0.5)
+            wait_time += 0.5
+            current_window = win32gui.GetForegroundWindow()
+            current_title = win32gui.GetWindowText(current_window)
+            
+        # 5. Type it out ONLY if you are safely back on the exact Keka tab
+        if current_window == original_window and current_title == original_title:
+            time.sleep(0.2) 
+            
+            # --- THE INSTANT PASTE UPGRADE ---
+            # Save the user's current clipboard data so we don't overwrite anything important
+            try:
+                old_clipboard = pyperclip.paste()
+            except:
+                old_clipboard = ""
+                
+            # Copy the AI summary to the clipboard and instantly press Ctrl+V
+            pyperclip.copy(summary_text)
+            pyautogui.hotkey('ctrl', 'v')
+            
+            # Give Windows 0.1 seconds to paste, then put their old clipboard back
+            time.sleep(0.1)
+            try:
+                pyperclip.copy(old_clipboard)
+            except:
+                pass
+        else:
+            print("Auto-typer timed out because you didn't return to the correct tab.")
+            
+    except Exception as e:
+        print(f"Database error during autofill: {e}")
+
+
+# --- 6. SYSTEM TRAY LOGIC ---
 def create_icon_image():
     image = Image.new('RGB', (64, 64), color=(255, 255, 255))
     draw = ImageDraw.Draw(image)
@@ -270,10 +383,12 @@ def exit_action(icon, item):
     is_tracking = False 
     icon.stop()
 
-# --- 6. MAIN EXECUTION ---
+# --- 7. MAIN EXECUTION ---
 def main():
     ensure_autostart()
     print("⏳ Launching login portal...")
+    
+    # Get the email securely and pass it to the tracking and autofill systems
     email = get_employee_credentials()
     
     if not email:
@@ -282,6 +397,10 @@ def main():
     print("✅ Starting background threads...")
     tracker_thread = threading.Thread(target=tracking_loop, args=(email,), daemon=True)
     tracker_thread.start()
+    
+    # Register the hotkey to pass the dynamically logged-in email
+    keyboard.add_hotkey('ctrl+alt+t', autofill_keka_timesheet, args=[email])
+    print(f"⌨️ Auto-typer ready for {email}. Press Ctrl+Alt+T in any text box.")
 
     menu = pystray.Menu(
         pystray.MenuItem("Open Dashboard", open_dashboard, default=True),
@@ -289,6 +408,8 @@ def main():
     )
 
     icon = pystray.Icon("AI_Assistant", create_icon_image(), "Hoonartek Tracker", menu)
+    
+    # This keeps the app running continuously (replacing keyboard.wait())
     icon.run()
 
 if __name__ == "__main__":

@@ -12,10 +12,10 @@ def get_timesheet_prompt(logs, start_date_str, end_date_str, additional_context=
     (CRITICAL: Seamlessly weave these manual notes into the final timesheet. These notes explain the actual work done inside black-box environments like Virtual Machines or off-screen tasks.)
     """
 
-    # 2. Upgraded Master Prompt with Corporate Context
+    # 2. Upgraded Master Prompt with Corporate Context (SHORT FORMAT)
     prompt = f"""
     You are an expert executive assistant and timesheet generator for an Associate Consultant at Hoonartek. 
-    Your task is to analyze raw desktop application activity logs and generate a professional, corporate-ready daily timesheet.
+    Your task is to analyze raw desktop application activity logs and generate a short, plain-text daily timesheet comment for the Keka HR portal.
 
     ### CONTEXT & PERSONA:
     - The user is a Full-Stack Developer specializing in JavaScript, TypeScript, React.js, Node.js, Express.js, and Zustand. 
@@ -23,29 +23,29 @@ def get_timesheet_prompt(logs, start_date_str, end_date_str, additional_context=
     - Their primary active project contributions include 'Global State', 'KF Academy', and the 'Employee Directory'.
 
     ### RAW LOGS & MANUAL CONTEXT:
-    The raw logs are provided in 30-minute summary buckets (e.g., 'Visual Studio Code: 22m | Microsoft Edge: 8m').
+    The raw logs are provided in 30-minute summary buckets.
     
     Logs:
     {json.dumps(logs, indent=2)}
     {context_block}
 
-    ### INSTRUCTIONS: 
-    1. Group the summarized tasks into distinct professional categories using Markdown bolding (e.g., **Full-Stack Development & Engineering**, **Cloud & Database Administration**, **Communication & Coordination**).
-    2. Start each bullet point with a strong action verb (e.g., Developed, Configured, Collaborated).
-    3. Prioritize descriptions in bullet points and explicitly emphasize impact metrics, such as time and cost savings or optimization, where it is logical based on the tools used.
-    4. Map generic tools to known projects: Assume 'Visual Studio Code' or terminal usage is related to KF Academy, Global State, or Employee Directory unless the user's manual context states otherwise.
-    5. If you see generic remote applications like "Remote Desktop", "Citrix", or "VMware", use the User's Manual Context to explain what they were actually doing. If no context is provided, categorize it generally under "Client Infrastructure / Remote Environment Tasks".
-    6. Filter out entirely non-work-related idle time.
-    7. Keep it concise and professional for a standard corporate timesheet submission.
+    ### CRITICAL INSTRUCTIONS FOR OUTPUT FORMAT: 
+    1. ONLY output plain text. Absolutely NO Markdown, NO bold text (**), NO headers (###), NO bullet points, and NO tables.
+    2. Keep it extremely concise (maximum 2 to 3 sentences). 
+    3. Write a single, professional paragraph summarizing the core productive tasks.
+    4. Start sentences with a strong action verb (e.g., "Developed features for KF Academy...", "Collaborated on...").
+    5. Write directly as the engineer. Do not include introductory text like "Here is the summary".
+    6. Map generic tools to known projects: Assume 'Visual Studio Code' or terminal usage is related to KF Academy, Global State, or Employee Directory unless the user's manual context states otherwise.
+    7. Filter out entirely non-work-related idle time.
     """
     
-    # 3. Strict Multi-Day Instruction
+    # 3. Strict Multi-Day Instruction (Formatted for plain text)
     if start_date_str != end_date_str:
         prompt += (
             f"\n\nCRITICAL INSTRUCTION: The requested date range is EXACTLY from {start_date_str} to {end_date_str}. "
-            "You MUST generate a separate Markdown heading for EVERY SINGLE DATE in this range, chronologically. "
-            "If the provided logs do not contain any data for a specific date, you must still include its heading and write 'No activity tracked on this day.' below it. "
-            "Do NOT skip any dates within the range."
+            "You MUST write one short paragraph for EVERY SINGLE DATE in this range. "
+            "Start each paragraph with the date in plain text (e.g., 'July 20: Developed...'). "
+            "Do NOT use markdown headers or bullet points."
         )
         
     return prompt

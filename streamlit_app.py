@@ -126,15 +126,15 @@ if st.session_state.user_email is None:
             if st.session_state.signup_stage == 1:
                 st.info("First time here? Verify your email to create an account.")
                 with st.form("email_form"):
-                    reg_name = st.text_input("Full Name (e.g., Ayush Raj)")
-                    reg_email = st.text_input("Company Email (@hoonartek.com)")
+                    reg_name = st.text_input("Full Name ")
+                    reg_email = st.text_input("Company Email ")
                     send_otp_btn = st.form_submit_button("Send Verification Code", use_container_width=True)
                     
                     if send_otp_btn:
                         if "@hoonartek.com" not in reg_email.lower():
-                            st.error("Please use a valid Hoonartek email address.")
+                            st.error("Please use a valid Hoonartek email address")
                         elif len(reg_name) < 2:
-                            st.error("Please enter your full name.")
+                            st.error("Please enter your full name")
                         else:
                             generated_otp = str(random.randint(100000, 999999))
                             st.session_state.signup_otp = generated_otp
