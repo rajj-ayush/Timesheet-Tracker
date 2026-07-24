@@ -258,14 +258,10 @@ def tracking_loop(email):
 
 # --- 5. TIMESHEET AUTOFILL LOGIC ---
 def autofill_keka_timesheet(email):
-    """Fetches the saved AI summary from Neon DB and pastes it instantly."""
+    """Fetches the saved AI summary from Neon DB and copies it to the clipboard."""
     global last_used_date 
     
-    # 1. Memorize BOTH the Window ID and the exact Tab Title
-    original_window = win32gui.GetForegroundWindow()
-    original_title = win32gui.GetWindowText(original_window)
-    
-    # 2. Smart Default Logic
+    # 1. Smart Default Logic
     today = datetime.now()
     if last_used_date:
         suggested_date = last_used_date + timedelta(days=1)
@@ -275,7 +271,7 @@ def autofill_keka_timesheet(email):
     suggested_str = suggested_date.strftime("%Y-%m-%d")
     
     prompt_text = (
-        "Bulk Fill: Press Enter for the next consecutive day.\n"
+        "Bulk Fetch: Press Enter for the next consecutive day.\n"
         "Or type a specific day (e.g., '15' for the 15th, '06-15' for June 15).\n\n"
         "Enter date:"
     )
@@ -309,10 +305,9 @@ def autofill_keka_timesheet(email):
         
     except Exception as e:
         print(f"Date formatting error: {e}")
-    # --------------------------------
 
     try:
-        # 3. Connect to Neon and fetch the saved summary
+        # 2. Connect to Neon and fetch the saved summary
         conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
         
@@ -323,48 +318,23 @@ def autofill_keka_timesheet(email):
         cursor.close()
         conn.close()
         
+        # 3. Handle the result with a popup
+        root = tk.Tk()
+        root.withdraw()
+        root.attributes('-topmost', True)
+        
         if result:
             summary_text = result[0]
-        else:
-            summary_text = f"[No summary found for {target_date_str}. Run the backfill script to generate it!]"
-
-        # 4. SUPER-SMART WAIT: Check both ID and Tab Title
-        wait_time = 0
-        current_window = win32gui.GetForegroundWindow()
-        current_title = win32gui.GetWindowText(current_window)
-        
-        while (current_window != original_window or current_title != original_title) and wait_time < 30:
-            time.sleep(0.5)
-            wait_time += 0.5
-            current_window = win32gui.GetForegroundWindow()
-            current_title = win32gui.GetWindowText(current_window)
-            
-        # 5. Type it out ONLY if you are safely back on the exact Keka tab
-        if current_window == original_window and current_title == original_title:
-            time.sleep(0.2) 
-            
-            # --- THE INSTANT PASTE UPGRADE ---
-            # Save the user's current clipboard data so we don't overwrite anything important
-            try:
-                old_clipboard = pyperclip.paste()
-            except:
-                old_clipboard = ""
-                
-            # Copy the AI summary to the clipboard and instantly press Ctrl+V
+            # Copy to clipboard instantly
             pyperclip.copy(summary_text)
-            pyautogui.hotkey('ctrl', 'v')
-            
-            # Give Windows 0.1 seconds to paste, then put their old clipboard back
-            time.sleep(0.1)
-            try:
-                pyperclip.copy(old_clipboard)
-            except:
-                pass
+            messagebox.showinfo(" Copied!", f"Timesheet for {target_date_str} has been copied to your clipboard.\n\nYou can now paste (Ctrl+V) it anywhere.", parent=root)
         else:
-            print("Auto-typer timed out because you didn't return to the correct tab.")
+            messagebox.showwarning("⚠️ Not Found", f"No summary found for {target_date_str}.\nRun the Streamlit dashboard to generate it!", parent=root)
+            
+        root.destroy()
             
     except Exception as e:
-        print(f"Database error during autofill: {e}")
+        print(f"Database error during fetch: {e}")
 
 
 # --- 6. SYSTEM TRAY LOGIC ---
@@ -400,7 +370,7 @@ def main():
     
     # Register the hotkey to pass the dynamically logged-in email
     keyboard.add_hotkey('ctrl+alt+t', autofill_keka_timesheet, args=[email])
-    print(f"⌨️ Auto-typer ready for {email}. Press Ctrl+Alt+T in any text box.")
+    print(f"📋 Timesheet fetcher ready for {email}. Press Ctrl+Alt+T anywhere to copy.")
 
     menu = pystray.Menu(
         pystray.MenuItem("Open Dashboard", open_dashboard, default=True),
