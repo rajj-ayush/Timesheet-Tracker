@@ -1,5 +1,18 @@
-import os
 import sys
+import os
+
+class NullWriter:
+    def write(self, text):
+        pass
+    
+    def flush(self):
+        pass
+
+if sys.stdout is None:
+    sys.stdout = NullWriter()
+if sys.stderr is None:
+    sys.stderr = NullWriter()
+
 import time
 import json
 import threading
@@ -16,8 +29,11 @@ from tkinter import simpledialog, messagebox
 import keyboard
 import pyautogui
 import pyperclip
+from tkcalendar import DateEntry
 
 last_used_date = None
+is_tracking = True
+is_paused = False
 
 try:
     import win32gui
@@ -56,7 +72,6 @@ EXE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main/u
 APP_DIR = os.path.join(os.getenv('LOCALAPPDATA'), 'HoonartekTracker')
 os.makedirs(APP_DIR, exist_ok=True)
 CONFIG_FILE = os.path.join(APP_DIR, "user_config.json")
-is_tracking = True
 
 # --- 2. AUTO-UPDATER LOGIC ---
 def check_for_updates():
@@ -178,7 +193,7 @@ def get_active_window_title():
         return ""
 
 def tracking_loop(email):
-    global is_tracking
+    global is_tracking, is_paused
     
     check_for_updates()
     print(f"✅ Tracking started for: {email}")
@@ -196,6 +211,12 @@ def tracking_loop(email):
     BUCKET_LIMIT = 30 * 60
 
     while is_tracking:
+        # Pause logic handling
+        if is_paused:
+            time.sleep(5)
+            bucket_start_time = time.time()
+            continue
+
         try:
             current_app = get_active_window_title()
             
@@ -261,53 +282,59 @@ def autofill_keka_timesheet(email):
     """Fetches the saved AI summary from Neon DB and copies it to the clipboard."""
     global last_used_date 
     
-    # 1. Smart Default Logic
     today = datetime.now()
     if last_used_date:
         suggested_date = last_used_date + timedelta(days=1)
     else:
         suggested_date = today
         
-    suggested_str = suggested_date.strftime("%Y-%m-%d")
+    selected_date_str = [None]
+
+    def on_submit():
+        selected_date_str[0] = cal.get_date().strftime("%Y-%m-%d")
+        root.destroy()
+
+    def on_cancel():
+        root.destroy()
+
+    root = tk.Tk()
+    root.title("Fetch Timesheet")
     
-    prompt_text = (
-        "Bulk Fetch: Press Enter for the next consecutive day.\n"
-        "Or type a specific day (e.g., '15' for the 15th, '06-15' for June 15).\n\n"
-        "Enter date:"
+    window_width = 300
+    window_height = 150
+    screen_width = root.winfo_screenwidth()
+    screen_height = root.winfo_screenheight()
+    x_cordinate = int((screen_width/2) - (window_width/2))
+    y_cordinate = int((screen_height/2) - (window_height/2))
+    root.geometry(f"{window_width}x{window_height}+{x_cordinate}+{y_cordinate}")
+    root.attributes('-topmost', True)
+    root.configure(padx=20, pady=20)
+
+    tk.Label(root, text="Select a date to fetch your summary:", font=("Arial", 10)).pack(pady=(0, 10))
+    
+    cal = DateEntry(
+        root, width=15, background='#007acc',
+        foreground='white', borderwidth=2,
+        year=suggested_date.year, month=suggested_date.month, day=suggested_date.day,
+        date_pattern='y-mm-dd'
     )
+    cal.pack(pady=5)
+
+    btn_frame = tk.Frame(root)
+    btn_frame.pack(pady=10)
+    tk.Button(btn_frame, text="Fetch Summary", command=on_submit, bg="#007acc", fg="white", width=15).pack(side=tk.LEFT, padx=5)
+    tk.Button(btn_frame, text="Cancel", command=on_cancel, width=10).pack(side=tk.LEFT, padx=5)
+
+    root.mainloop()
+
+    target_date_str = selected_date_str[0]
     
-    raw_input = pyautogui.prompt(
-        text=prompt_text, 
-        title='Fetch Timesheet', 
-        default=suggested_str
-    )
-    
-    if not raw_input:
+    if not target_date_str:
         return 
-
-    # --- SMART DATE PARSING LOGIC ---
-    raw_input = raw_input.strip().lower()
-    target_date_str = raw_input 
-    
-    try:
-        if raw_input in ['y', 'yesterday']:
-            parsed_date = today - timedelta(days=1)
-        elif raw_input.isdigit() and 1 <= int(raw_input) <= 31:
-            parsed_date = today.replace(day=int(raw_input))
-        elif len(raw_input) <= 5 and '-' in raw_input: 
-            month, day = map(int, raw_input.split('-'))
-            parsed_date = today.replace(month=month, day=day)
-        else:
-            parsed_date = datetime.strptime(raw_input, "%Y-%m-%d")
-            
-        target_date_str = parsed_date.strftime("%Y-%m-%d")
-        last_used_date = parsed_date 
         
-    except Exception as e:
-        print(f"Date formatting error: {e}")
+    last_used_date = datetime.strptime(target_date_str, "%Y-%m-%d")
 
     try:
-        # 2. Connect to Neon and fetch the saved summary
         conn = psycopg2.connect(DB_URL)
         cursor = conn.cursor()
         
@@ -318,27 +345,25 @@ def autofill_keka_timesheet(email):
         cursor.close()
         conn.close()
         
-        # 3. Handle the result with a popup
-        root = tk.Tk()
-        root.withdraw()
-        root.attributes('-topmost', True)
+        msg_root = tk.Tk()
+        msg_root.withdraw()
+        msg_root.attributes('-topmost', True)
         
         if result:
             summary_text = result[0]
-            # Copy to clipboard instantly
             pyperclip.copy(summary_text)
-            messagebox.showinfo(" Copied!", f"Timesheet for {target_date_str} has been copied to your clipboard.\n\nYou can now paste (Ctrl+V) it anywhere.", parent=root)
+            messagebox.showinfo("Copied!", f"Timesheet for {target_date_str} has been copied to your clipboard.\n\nYou can now paste (Ctrl+V) it anywhere.", parent=msg_root)
         else:
-            messagebox.showwarning("⚠️ Not Found", f"No summary found for {target_date_str}.\nRun the Streamlit dashboard to generate it!", parent=root)
+            messagebox.showwarning("⚠️ Not Found", f"No summary found for {target_date_str}.\nRun the Streamlit dashboard to generate it!", parent=msg_root)
             
-        root.destroy()
+        msg_root.destroy()
             
     except Exception as e:
         print(f"Database error during fetch: {e}")
 
-
 # --- 6. SYSTEM TRAY LOGIC ---
 def create_icon_image():
+    """Creates a simple, static, professional blue icon."""
     image = Image.new('RGB', (64, 64), color=(255, 255, 255))
     draw = ImageDraw.Draw(image)
     draw.ellipse((8, 8, 56, 56), fill=(0, 122, 204))
@@ -348,17 +373,26 @@ def create_icon_image():
 def open_dashboard(icon, item):
     webbrowser.open(STREAMLIT_URL)
 
+def toggle_tracking(icon, item):
+    """Toggles the is_paused state on and off."""
+    global is_paused
+    is_paused = not is_paused
+    state_msg = "⏸️ Paused" if is_paused else "▶️ Resumed"
+    print(f"Tracking Status: {state_msg}")
+
 def exit_action(icon, item):
     global is_tracking
     is_tracking = False 
     icon.stop()
 
 # --- 7. MAIN EXECUTION ---
+def trigger_shortcut(email):
+    threading.Thread(target=autofill_keka_timesheet, args=(email,), daemon=True).start()
+
 def main():
     ensure_autostart()
     print("⏳ Launching login portal...")
     
-    # Get the email securely and pass it to the tracking and autofill systems
     email = get_employee_credentials()
     
     if not email:
@@ -368,18 +402,24 @@ def main():
     tracker_thread = threading.Thread(target=tracking_loop, args=(email,), daemon=True)
     tracker_thread.start()
     
-    # Register the hotkey to pass the dynamically logged-in email
-    keyboard.add_hotkey('ctrl+alt+t', autofill_keka_timesheet, args=[email])
+    keyboard.add_hotkey('ctrl+alt+t', trigger_shortcut, args=[email])
     print(f"📋 Timesheet fetcher ready for {email}. Press Ctrl+Alt+T anywhere to copy.")
 
     menu = pystray.Menu(
         pystray.MenuItem("Open Dashboard", open_dashboard, default=True),
+        pystray.Menu.SEPARATOR,
+        # This creates a standard Windows Checkbox in the tray menu!
+        pystray.MenuItem(
+            "Tracking Active", 
+            toggle_tracking, 
+            checked=lambda item: not is_paused
+        ),
+        pystray.Menu.SEPARATOR,
         pystray.MenuItem("Exit", exit_action)
     )
 
+    # Use the static blue icon
     icon = pystray.Icon("AI_Assistant", create_icon_image(), "Hoonartek Tracker", menu)
-    
-    # This keeps the app running continuously (replacing keyboard.wait())
     icon.run()
 
 if __name__ == "__main__":
