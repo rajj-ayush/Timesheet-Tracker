@@ -66,8 +66,7 @@ GITHUB_USER = "rajj-ayush"
 GITHUB_REPO = "Timesheet-Tracker" 
 
 VERSION_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main/updates/version.txt"
-EXE_URL = f"https://raw.githubusercontent.com/{GITHUB_USER}/{GITHUB_REPO}/main/updates/hoonartek_tracker.exe"
-
+EXE_URL = f"https://github.com/{GITHUB_USER}/{GITHUB_REPO}/raw/main/updates/hoonartek_tracker.exe"
 # Local App Data
 APP_DIR = os.path.join(os.getenv('LOCALAPPDATA'), 'HoonartekTracker')
 os.makedirs(APP_DIR, exist_ok=True)
