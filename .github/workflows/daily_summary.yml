@@ -1,9 +1,10 @@
 name: Daily Timesheet Summarizer
 
 on:
-  # Runs automatically at 12:00 AM IST (which is 18:30 UTC)
+  # Runs automatically at 6:30 AM IST 
+  # Waiting until after midnight UTC fixes the timezone date-math bug.
   schedule:
-    - cron: '30 18 * * *'
+    - cron: '0 1 * * *'
   
   # Allows you to trigger it manually from the GitHub website
   workflow_dispatch:

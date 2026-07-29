@@ -11,8 +11,6 @@ from dotenv import load_dotenv
 from google import genai
 import psycopg2
 from streamlit_cookies_controller import CookieController
-
-# Import your clean prompt logic
 from prompts.system_prompt import get_timesheet_prompt
 
 # --- Configuration & Setup ---
@@ -47,12 +45,6 @@ def send_otp_email(receiver_email, otp_code):
     except Exception as e:
         return str(e)
 
-# Helper function to fetch the tracker executable in the background
-@st.cache_data(show_spinner=False)
-def get_tracker_exe():
-    exe_url = "https://raw.githubusercontent.com/rajj-ayush/Timesheet-Tracker/main/updates/hoonartek_tracker.exe"
-    response = requests.get(exe_url)
-    return response.content
 
 # --- SESSION MANAGEMENT ---
 if "user_email" not in st.session_state:
@@ -80,7 +72,7 @@ if st.session_state.user_email is None and cookie_email:
 
 
 # ==========================================
-# 🔒 THE SECURE AUTHENTICATION PORTAL
+#  THE SECURE AUTHENTICATION PORTAL
 # ==========================================
 if st.session_state.user_email is None:
     col1, col2, col3 = st.columns([1, 2, 1])
@@ -257,21 +249,17 @@ else:
         
         st.divider()
         
-        # 2. DESKTOP TRACKER DIRECT DOWNLOAD
+        # 2. DESKTOP TRACKER DIRECT DOWNLOAD (Using the new direct link button)
         st.markdown("###  Automate Your Timesheets")
         st.markdown("Run this secure, lightweight app in the background to seamlessly track your daily work without the manual hassle.")
         
-        exe_data = get_tracker_exe()
-        
-        st.download_button(
-            label="⬇ Download Desktop Tracker",
-            data=exe_data,
-            file_name="hoonartek_tracker.exe",
-            mime="application/x-msdownload",
+        st.link_button(
+            label=" Download Desktop Tracker", 
+            url="https://github.com/rajj-ayush/Timesheet-Tracker/raw/main/updates/hoonartek_tracker.exe",
             use_container_width=True
         )
 
-    # --- TIMESHEET GENERATION LOGIC (UPDATED FOR NEW ARCHITECTURE) ---
+    # --- TIMESHEET GENERATION LOGIC ---
     if trigger_generation:
         today_str = date.today().strftime('%Y-%m-%d')
         
