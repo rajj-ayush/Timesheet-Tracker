@@ -9,10 +9,9 @@ from prompts.system_prompt import get_timesheet_prompt
 
 load_dotenv()
 
-DB_URL = os.getenv(
-    "DATABASE_URL", 
-    "postgresql://neondb_owner:npg_dR8FY4hIcnbw@ep-gentle-water-atoky22j.c-9.us-east-1.aws.neon.tech/neondb?sslmode=require"
-)
+DB_URL = os.getenv("DATABASE_URL") 
+if not DB_URL:
+    raise ValueError("DATABASE_URL environment variable is not set")
 
 def generate_ai_task_summary(rows, target_date_str):
     client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))

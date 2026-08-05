@@ -1,3 +1,7 @@
+# Node dependencies (Never commit this!)
+node_modules/
+package-lock.json
+
 # Ignore environment variables (NEVER commit this!)
 .env
 
