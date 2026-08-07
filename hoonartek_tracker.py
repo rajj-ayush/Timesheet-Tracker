@@ -29,7 +29,20 @@ import pyautogui
 import pyperclip
 from tkcalendar import DateEntry
 from dotenv import load_dotenv
-load_dotenv()
+
+def get_env_path():
+    """Get the absolute path to the .env file, handling PyInstaller's temp folder."""
+    try:
+        # PyInstaller creates a temp folder and stores path in _MEIPASS
+        base_path = sys._MEIPASS
+    except AttributeError:
+        # If running as a normal .py script
+        base_path = os.path.abspath(".")
+    
+    return os.path.join(base_path, '.env')
+
+# Load the .env file securely using the custom path!
+load_dotenv(dotenv_path=get_env_path())
 
 last_used_date = None
 is_tracking = True
