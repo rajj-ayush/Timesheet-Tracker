@@ -135,9 +135,8 @@ def ensure_autostart():
         exe_path = sys.executable
         startup_folder = os.path.join(os.getenv('APPDATA'), 'Microsoft', 'Windows', 'Start Menu', 'Programs', 'Startup')
         bat_path = os.path.join(startup_folder, 'HoonartekTracker.bat')
-        if not os.path.exists(bat_path):
-            with open(bat_path, "w") as f:
-                f.write(f'@echo off\nstart "" "{exe_path}"')
+        with open(bat_path, "w") as f:
+            f.write(f'@echo off\nstart "" "{exe_path}"')
 
 def hash_password(password):
     return hashlib.sha256(password.encode()).hexdigest()
