@@ -90,7 +90,7 @@ def check_for_updates():
     print("Checking cloud for updates...")
     headers = {}
     if GITHUB_TOKEN:
-         headers["Authorization"] = f"token {GITHUB_TOKEN}"
+        headers["Authorization"] = f"token {GITHUB_TOKEN}"
          
     try:
         response = requests.get(VERSION_URL, headers=headers, timeout=10)
@@ -98,19 +98,31 @@ def check_for_updates():
             latest_version = float(response.text.strip())
             if latest_version > CURRENT_VERSION:
                 print(f"🚀 Update found! Downloading v{latest_version}...")
+                
+                # Get full absolute paths for the running .exe and the temp file
+                exe_path = os.path.abspath(sys.executable)
+                exe_dir = os.path.dirname(exe_path)
+                temp_exe = os.path.join(exe_dir, "app_new.exe")
+                bat_path = os.path.join(exe_dir, "update.bat")
+
                 exe_response = requests.get(EXE_URL, headers=headers, stream=True)
                 if exe_response.status_code == 200:
-                    with open("app_new.exe", "wb") as f:
+                    with open(temp_exe, "wb") as f:
                         for chunk in exe_response.iter_content(chunk_size=8192):
                             f.write(chunk)
                     
-                    exe_name = os.path.basename(sys.executable)
-                    bat_content = f"""@echo off\ntimeout /t 2 /nobreak > NUL\nmove /Y app_new.exe "{exe_name}"\nstart "" "{exe_name}"\ndel "%~f0"\n"""
-                    with open("update.bat", "w") as f:
+                    # Use full quotes around absolute paths for move and start
+                    bat_content = f"""@echo off
+timeout /t 2 /nobreak > NUL
+move /Y "{temp_exe}" "{exe_path}"
+start "" "{exe_path}"
+del "%~f0"
+"""
+                    with open(bat_path, "w") as f:
                         f.write(bat_content)
                         
                     print("🔄 Restarting to apply update...")
-                    subprocess.Popen("update.bat", shell=True)
+                    subprocess.Popen(f'"{bat_path}"', shell=True)
                     os._exit(0) 
         else:
             print("✅ App is up to date.")
