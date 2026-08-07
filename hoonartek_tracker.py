@@ -28,6 +28,8 @@ import keyboard
 import pyautogui
 import pyperclip
 from tkcalendar import DateEntry
+from dotenv import load_dotenv
+load_dotenv()
 
 last_used_date = None
 is_tracking = True
@@ -42,7 +44,7 @@ except ImportError:
 # --- 1. CONFIGURATION ---
 STREAMLIT_URL = "https://timesheet-tracker-hoonartek.streamlit.app"
 API_BASE_URL = "https://timesheet-api-780y.onrender.com"
-API_SECRET = ""
+API_SECRET = os.getenv("API_SECRET", "")
 
 pyautogui.FAILSAFE = False
 
@@ -50,12 +52,15 @@ def get_internal_version():
     try:
         base_path = getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__)))
         version_file = os.path.join(base_path, 'updates', 'version.txt')
+        if not os.path.exists(version_file):
+            version_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'updates', 'version.txt')
         with open(version_file, 'r') as f:
-            return float(f.read().strip())
+            content = f.read().strip()
+            return content, float(content)
     except Exception as e:
-        return 0.0
+        return "1.0", 1.0
 
-CURRENT_VERSION = get_internal_version()
+VERSION_STR, CURRENT_VERSION = get_internal_version()
 GITHUB_TOKEN = "" 
 GITHUB_USER = "rajj-ayush" 
 GITHUB_REPO = "Timesheet-Tracker" 
@@ -215,9 +220,12 @@ def tracking_loop(email):
                         try:
                             response = requests.post(f"{API_BASE_URL}/api/log", json=payload, headers=headers, timeout=30)
                             if response.status_code == 200:
-                                print(f"💾 30-Min Bucket Saved via API: {summary_string}")
+                                print(f"💾 Bucket Saved via API: {summary_string}")
                                 break
+                            else:
+                                print(f"⚠️ Attempt {attempt + 1} failed. Status: {response.status_code}")
                         except requests.exceptions.RequestException as req_err:
+                            print(f"⚠️ Network error during log post: {req_err}")
                             time.sleep(5)
 
                 app_durations.clear()
@@ -346,7 +354,9 @@ def main():
         pystray.MenuItem("Exit", exit_action)
     )
 
-    icon = pystray.Icon("AI_Assistant", create_icon_image(), "Hoonartek Tracker", menu)
+    # Automatically pulls version number from updates/version.txt into the tray tooltip name
+    icon_title = f"Hoonartek Tracker v{VERSION_STR}"
+    icon = pystray.Icon("AI_Assistant", create_icon_image(), icon_title, menu)
     icon.run()
 
 if __name__ == "__main__":
